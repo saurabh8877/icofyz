@@ -1,137 +1,97 @@
-# iCoFyz Visual CMS — Render production deployment
+# iCoFyz — GoDaddy Node.js Hosting edition
 
-This repository contains the iCoFyz React/Vite storefront, Express API, PostgreSQL-backed visual CMS, admin authentication, and image uploads.
+This edition is adapted for GoDaddy Node.js Hosting's managed MySQL database. It uses `mysql2`, not PostgreSQL. It includes the React/Vite storefront, Express API, MySQL-backed admin accounts/content/settings, a MySQL-backed Express session store, secure admin authentication, and image upload conversion to WebP.
 
-## Production architecture
+## Important GoDaddy setup
 
-- One Render Node web service serves the built React app, `/admin`, `/api/*`, and `/uploads/*` from the same origin.
-- Render Postgres stores admin accounts, sessions, products, categories, brands, banners, and site settings.
-- A Render persistent disk mounted at `/var/data` stores uploaded WEBP images under `/var/data/uploads`.
-- Render's internal database URL is used for service-to-database traffic in the same region.
+GoDaddy's Hosted Database page says it automatically injects these secrets when the database is attached to the app:
 
-## Deploy with Render Blueprint (recommended)
+- `DB_HOST`
+- `DB_PORT`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
 
-The included `render.yaml` declares:
+Do not manually overwrite those values. The application reads them from `process.env`.
 
-- Web service: `icofyz`, Node runtime, Singapore region, Starter web plan.
-- Managed PostgreSQL: `icofyz-db`, database `icofyz`, PostgreSQL 18, Singapore region.
-- Persistent disk: 1 GB mounted at `/var/data`.
-- Environment variables for the upload path, generated session secret, internal database URL, and initial admin credentials.
+### 1. Add the session secret
 
-**Review Render's current pricing and resource sizes before approving the Blueprint.** A persistent disk requires a paid web service. Render disks are attached to one service instance; this deployment is intentionally single-instance while using local persistent uploads.
+In the GoDaddy app dashboard, open **Settings → Secrets**. Configure `SESSION_SECRET` separately for **Preview** and **Publish** (use a different random value for each if desired). Generate a value on your Mac with:
 
-### 1. Put the project on GitHub
+```bash
+openssl rand -hex 32
+```
 
-1. Extract this ZIP.
-2. Create a **private** GitHub repository, for example `icofyz-website`.
-3. From the extracted `icofyz` project directory, run:
+Paste the output as the secret value. Keep it private. Do not add `NODE_ENV` manually if GoDaddy marks it as reserved.
 
-   ```bash
-   git init
-   git add .
-   git status
-   ```
+If GoDaddy's app UI has Preview and Publish tabs, save the secret in the environment you are currently deploying. Preview and Publish share the hosted database according to GoDaddy's Hosted Database guide, but their app secrets are managed separately.
 
-4. Confirm `.env` is not listed. Never commit `.env`, database passwords, admin passwords, or session secrets.
-5. Commit and push:
+### 2. Build and start commands
 
-   ```bash
-   git commit -m "Prepare iCoFyz for Render production"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_GITHUB_USERNAME/icofyz-website.git
-   git push -u origin main
-   ```
+Use the repository root as the app root. `package.json` must be directly in that root (not one folder below).
 
-### 2. Deploy the Blueprint
+- Install: `npm install`
+- Build: `npm run build`
+- Start: `npm start`
 
-1. Sign in at <https://dashboard.render.com/> and connect GitHub if prompted.
-2. Choose **New → Blueprint**.
-3. Select the private `icofyz-website` repository and branch `main`.
-4. Render reads `render.yaml`. Review the proposed web service, database, region, plan, and disk size.
-5. When prompted for `ADMIN_EMAIL`, enter the administrator email you want to use.
-6. When prompted for `ADMIN_PASSWORD`, enter a unique password of at least 14 characters. Do not reuse a personal or email password.
-7. Approve **Deploy Blueprint**.
-8. Wait for the database and web service to become ready. The app applies `server/schema.sql` at startup and creates the initial admin only if that email does not already exist.
+The `start` script runs `node server/server.js`. GoDaddy should supply `PORT`; the server binds to `0.0.0.0` and uses that port.
 
-The web service uses the Render-internal database connection string via `fromDatabase`, which is appropriate because both resources are declared in the same region. Do not replace it with the external database URL for app-to-database traffic.
+### 3. Database initialization
 
-### 3. Verify the Render deployment
+The server creates the required MySQL tables on startup:
 
-Open the service URL shown by Render, for example `https://YOUR-SERVICE.onrender.com`.
+- `admins`
+- `content_items`
+- `site_settings`
+- `user_sessions`
 
-Check:
+The default homepage settings row is inserted only if it does not already exist. No manual SQL import is required for a fresh database. The database must be attached to the GoDaddy app so the five `DB_*` variables are injected.
 
-- `https://YOUR-SERVICE.onrender.com/api/health` returns `{"ok":true}`.
-- The storefront homepage loads.
-- `/admin` loads after a direct browser refresh.
-- Admin login works with the credentials supplied during Blueprint creation.
-- Upload a small JPEG/PNG/WEBP from the CMS, save settings, and verify the image remains available after a redeploy.
-- Edit a homepage setting, save, refresh the storefront, and confirm it persists.
+### 4. Create the first admin account
 
-### 4. Connect `icofyz.com` and `www.icofyz.com`
+In GoDaddy Secrets, add `ADMIN_EMAIL` and `ADMIN_PASSWORD` to the **Preview** environment. Use a unique password of at least 14 characters. The server creates this admin only if the email does not already exist; it does not overwrite an existing password on every restart.
 
-1. In Render, open the `icofyz` web service → **Settings → Custom Domains**.
-2. Add `icofyz.com` and `www.icofyz.com`.
-3. Render will show the DNS records required for your service. Sign in to the registrar/DNS provider where `icofyz.com` is managed and enter those exact records. Do not guess IP addresses or reuse old hosting records.
-4. Remove conflicting A/AAAA/CNAME records only when you have confirmed they point to the previous host and are not used by other services.
-5. Wait for DNS verification and Render's TLS certificate provisioning.
-6. Choose one canonical hostname in Render (typically `icofyz.com`) and configure the other to redirect if Render offers that option. Verify both `https://icofyz.com` and `https://www.icofyz.com`.
-7. Keep DNS at the registrar; do not change nameservers unless you intentionally want to move all DNS management.
+For a password reset, update the secrets and run `npm run create-admin` from the app's terminal/console if GoDaddy exposes one. That command updates the password hash for the specified email. If GoDaddy does not provide a terminal/console, ask GoDaddy support how to run a one-off npm script; do not expose credentials in source code.
 
-### 5. Admin password management
+Configure the same admin secrets in **Publish** when ready to launch. Preview and Publish share the same database, so they share admin accounts and CMS content.
 
-- Initial administrator is created once at application startup if `ADMIN_EMAIL` and `ADMIN_PASSWORD` are configured and the email does not exist.
-- The startup bootstrap does **not** overwrite an existing admin password.
-- To reset the password later, update `ADMIN_EMAIL` and `ADMIN_PASSWORD` in the Render service environment, open the service Shell, run `npm run create-admin`, then remove or rotate the temporary password environment variable after confirming the reset. The script updates the matching account's bcrypt hash.
-- Never put credentials in source code, GitHub, screenshots, or support chats.
+### 5. Image uploads — verify persistence before production
 
-### 6. Image storage and backups
+Uploaded images are converted to WebP and written to `server/uploads` by default, then served from `/uploads/...`. This path is inside the app directory. Before relying on CMS image uploads, confirm in GoDaddy's documentation or with support that app filesystem writes persist across app restarts and redeploys. If GoDaddy provides a persistent writable storage path, set `UPLOAD_DIR` to that exact path in both Preview and Publish secrets. Do not guess a path. If the filesystem is ephemeral, use external object storage before launch.
 
-Uploads are written to `UPLOAD_DIR` (Render Blueprint: `/var/data/uploads`) and served from `/uploads/<filename>`. The disk preserves files across service restarts and deploys.
+### 6. Verify Preview
 
-Important Render disk constraints:
+After saving secrets and redeploying/restarting Preview, check:
 
-- Only files under `/var/data` persist.
-- A persistent disk is attached to one service instance and prevents horizontal scaling beyond one instance for this service.
-- Disk-backed deploys may involve a short restart/downtime.
-- Back up uploaded assets separately on a schedule. PostgreSQL backups do not include image files on the web-service disk.
-- If you later need multiple web instances, move images to S3-compatible object storage before scaling.
+- `/api/health` returns `{"ok":true,"database":"connected"}`.
+- Homepage loads.
+- `/admin` loads and admin login works.
+- Save a homepage setting, refresh, and confirm it persists.
+- Upload a small test image, open its returned `/uploads/...` URL, then restart/redeploy Preview and check that the image still loads. Remove test uploads after verification.
 
-### 7. Local development
+### 7. Security
 
-Requirements: Node.js 20+ and PostgreSQL.
+- Keep the GitHub repository private.
+- Never commit `.env` or share database/password/session secret values.
+- Keep `SESSION_SECRET` stable for each environment; changing it signs out existing sessions.
+- Use a unique admin password and enable MFA on GoDaddy and GitHub.
+- Do not publish until database, admin login, image persistence, and domain settings have been tested.
+
+## Local development
+
+Requires Node.js 20+ and a local MySQL 8-compatible database.
 
 ```bash
 cp .env.example .env
-# Edit .env with local PostgreSQL credentials and a random SESSION_SECRET
+# Edit DB_* and SESSION_SECRET in .env
 npm install
 npm run db:setup
 npm run create-admin
 npm run dev:all
 ```
 
-- Storefront: <http://localhost:5173>
-- Admin: <http://localhost:5173/admin>
-- API health: <http://localhost:4000/api/health>
+- Storefront: http://localhost:5173
+- Admin: http://localhost:5173/admin
+- API health: http://localhost:4000/api/health
 
-For local development, Vite proxies `/api` and `/uploads` to Express on port 4000. In production, Express serves `dist` and handles the API on the same origin; no Vite dev proxy is used.
-
-## Security and operational checklist
-
-- Use a private GitHub repository and never commit `.env`.
-- Use the Render-generated `SESSION_SECRET`; keep it private and stable across deploys.
-- Use a unique admin password (14+ characters minimum) and rotate it if exposed.
-- Keep the PostgreSQL database and web service in the same Render region; use the internal database URL.
-- Enable MFA on GitHub, Render, and the domain registrar.
-- Keep dependencies updated and review `npm audit` output before releases.
-- Monitor Render logs and database health; configure backups for both PostgreSQL and uploaded images.
-- The legacy storefront script is executed as an inline script for compatibility. The CSP retains `unsafe-inline` for scripts/styles until the legacy page is refactored into bundled React components. Do not add `unsafe-eval`.
-- This is a production deployment baseline, not a guarantee that a site is unhackable. Add MFA/SSO for admins, audit logs, alerting, tested restores, and a security review before handling sensitive customer or payment data.
-
-## Troubleshooting
-
-- **Build fails with missing Vite:** confirm build command is `npm install --include=dev && npm run build && npm prune --omit=dev`.
-- **Service fails health check:** inspect Render logs for database connection/schema errors; confirm `DATABASE_URL` is populated from `icofyz-db`.
-- **Admin login fails:** verify the email used in the Blueprint and reset with `npm run create-admin` from Render Shell after setting the environment values.
-- **Images disappear after deploy:** verify the disk is mounted at `/var/data` and `UPLOAD_DIR=/var/data/uploads`.
-- **Domain doesn't resolve:** compare registrar DNS records with the exact records displayed in Render Custom Domains; allow time for DNS propagation and certificate issuance.
+In local development, Vite proxies `/api` and `/uploads` to Express on port 4000. In production, Express serves the built `dist` folder and API from the same origin.
