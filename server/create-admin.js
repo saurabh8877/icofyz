@@ -1,0 +1,13 @@
+import 'dotenv/config';
+import pg from 'pg';
+import bcrypt from 'bcryptjs';
+const {Pool}=pg;
+if(!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL in .env first.');
+const email=process.env.ADMIN_EMAIL;
+const password=process.env.ADMIN_PASSWORD;
+if(!email || !password || password.length<14) throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD (at least 14 characters) in .env.');
+const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='true'?{rejectUnauthorized:true}:undefined});
+const hash=await bcrypt.hash(password,12);
+await pool.query('INSERT INTO admins(email,password_hash) VALUES($1,$2) ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash',[email.toLowerCase(),hash]);
+console.log(`Admin account ready for ${email.toLowerCase()}.`);
+await pool.end();

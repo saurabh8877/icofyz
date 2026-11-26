@@ -1,0 +1,40 @@
+{
+  "name": "icofyz-react",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/server.js",
+    "server": "node server/server.js",
+    "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+    "create-admin": "node server/create-admin.js",
+    "db:setup": "node server/setup-db.js"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "multer": "^2.0.2",
+    "pg": "^8.13.1",
+    "bcryptjs": "^2.4.3",
+    "express-session": "^1.18.1",
+    "connect-pg-simple": "^10.0.0",
+    "helmet": "^8.0.0",
+    "express-rate-limit": "^7.5.0",
+    "file-type": "^19.6.0",
+    "sharp": "^0.33.5",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.14",
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
