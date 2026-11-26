@@ -102,6 +102,82 @@ function applyVisualSettings(settings) {
   }
 }
 
+
+const storefrontCategories = [
+  ['Home decor','home-decor','Decor accents, textiles and thoughtful pieces for every space'],
+  ['Food & drink','pantry','Small-batch pantry favourites, tea, coffee and treats'],
+  ['Gifts','gift-hampers','Ready-to-gift finds, hampers and little luxuries'],
+  ['Sports & outdoors','bags','Everyday active essentials and outdoor accessories'],
+  ['Made in India','dinnerware','Distinctive craft, design and maker-led collections'],
+  ['Sustainable','kitchenware','Considered everyday goods with a lighter footprint']
+];
+const storefrontProducts = [
+  ['Hand-glazed stoneware vase','Northstar Ceramics','home-decor','Bestseller','Home'],
+  ['Soy wax candle, sandalwood','Ember & Oak','candles','New','Home'],
+  ['Speckled breakfast mug','Northstar Ceramics','dinnerware','','Kitchen'],
+  ['Mini indoor planter','Greenleaf Studio','home-decor','Bestseller','Home'],
+  ['Festive gift hamper box','Little Joys','gift-hampers','','Gifts'],
+  ['Small-batch mango pickle','Nani’s Kitchen','pantry','Bestseller','Kitchen'],
+  ['Cane table lamp','Juniper Lane','lighting','New','Home'],
+  ['Embroidered cushion cover','Juniper Lane','textiles','','Home']
+];
+function ensureStorefrontVisuals() {
+  const base='/images/storefront/';
+  const cats=document.getElementById('cats');
+  if(cats) {
+    cats.innerHTML=storefrontCategories.map(([name,image,desc])=>`
+      <a href="#catpanel" class="cat visual-cat" data-visual-category="${name}">
+        <div class="img"><img src="${base}${image}.webp" alt="${name}" loading="lazy"></div>
+        <span>${name}</span><small>${desc}</small>
+      </a>`).join('');
+  }
+  const products=document.getElementById('products');
+  const tabs=document.getElementById('tabs');
+  if(products) {
+    const render=(filter='All')=>{
+      const cms=Array.isArray(window.ICOFYZ_CMS_DATA?.products)?window.ICOFYZ_CMS_DATA.products:[];
+      const all=[...storefrontProducts,...cms.map(p=>[p.name||'New product',p.brand||'iCoFyz seller',p.image?'':(p.icon||'gift'),'',p.category||'All',p.image||''])];
+      const visible=all.filter(p=>filter==='All'||p[4]===filter);
+      products.innerHTML=visible.map(([name,brand,image,tag,category,customImage])=>`
+        <article class="prod visual-prod">
+          <div class="img">${tag?`<span class="tag ${tag==='New'?'new':'best'}">${tag}</span>`:''}
+            <img src="${customImage||base+image+'.webp'}" alt="${name}" loading="lazy">
+          </div>
+          <h4>${name}</h4><div class="brand">${brand}</div>
+          <span class="unlock">Sign up to view wholesale terms →</span>
+        </article>`).join('');
+    };
+    if(tabs) {
+      tabs.innerHTML=['All','Home','Kitchen','Gifts'].map((t,i)=>`<button class="tab ${i===0?'active':''}" data-visual-tab="${t}">${t}</button>`).join('');
+      tabs.addEventListener('click',e=>{
+        const b=e.target.closest('[data-visual-tab]'); if(!b)return;
+        tabs.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b)); render(b.dataset.visualTab);
+      });
+    }
+    render();
+  }
+  if(!document.getElementById('visual-storefront-style')) {
+    const style=document.createElement('style'); style.id='visual-storefront-style';
+    style.textContent=`
+      .cats .visual-cat .img{overflow:hidden;background:#f6f2ed;border-radius:20px;aspect-ratio:1}
+      .cats .visual-cat .img img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
+      .cats .visual-cat:hover .img img,.visual-prod:hover .img img{transform:scale(1.055)}
+      .cats .visual-cat small{color:var(--muted);font-size:12px;line-height:1.45}
+      .visual-prod .img{background:#f6f2ed;overflow:hidden}
+      .visual-prod .img img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
+      @media(max-width:900px){.cats{grid-template-columns:repeat(3,1fr)}.products{grid-template-columns:repeat(2,1fr)}}
+      @media(max-width:520px){.cats{grid-template-columns:repeat(2,1fr);gap:14px}.products{gap:14px}}
+    `;
+    document.head.appendChild(style);
+  }
+  cats?.addEventListener('click',e=>{
+    const a=e.target.closest('[data-visual-category]'); if(!a)return;
+    const panel=document.getElementById('catpanel'); if(!panel)return;
+    const label=a.dataset.visualCategory;
+    panel.innerHTML=`<div class="cp-head"><div><h3>${label}</h3><p>Explore curated ${label.toLowerCase()} collections from independent makers.</p></div></div>`;
+  });
+}
+
 function IcofyzPage() {
   const initialized = useRef(false);
 
@@ -120,6 +196,7 @@ function IcofyzPage() {
       legacyScript.textContent = legacyCode;
       document.body.appendChild(legacyScript);
       legacyScript.remove();
+      ensureStorefrontVisuals();
       applyVisualSettings(cms?.settings || {});
     });
     return () => { cancelled = true; };

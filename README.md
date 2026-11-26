@@ -95,3 +95,8 @@ npm run dev:all
 - API health: http://localhost:4000/api/health
 
 In local development, Vite proxies `/api` and `/uploads` to Express on port 4000. In production, Express serves the built `dist` folder and API from the same origin.
+
+
+## Storefront photography update
+
+The homepage category tiles and Trending on iCoFyz product cards now use locally bundled WebP lifestyle/product photography in `public/images/storefront/`. The storefront renderer in `src/main.jsx` ensures these visual sections are populated even if the legacy catalogue renderer does not populate them. Images are served from the same GoDaddy app origin; no external image service or API key is required.
