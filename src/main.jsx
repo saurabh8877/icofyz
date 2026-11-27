@@ -256,6 +256,34 @@ function setupShoppingActions(products) {
   updateCounts();
 }
 
+function installCustomerAccounts() {
+  if (document.getElementById('customer-account-root')) return;
+  const style=document.createElement('style'); style.id='customer-account-style'; style.textContent=`
+  .account-backdrop{position:fixed;inset:0;z-index:100000;background:rgba(12,16,38,.58);display:grid;place-items:center;padding:18px}
+  .account-card{width:min(470px,100%);max-height:min(92vh,800px);overflow:auto;background:#fff;border-radius:22px;padding:28px;box-shadow:0 24px 90px #0004;position:relative}
+  .account-card h2{font-size:26px;margin:0 38px 7px 0;color:#17172b}.account-card p{color:#686d83;margin:0 0 20px}.account-close{position:absolute;right:18px;top:16px;border:0;border-radius:50%;width:36px;height:36px;background:#f3f2f7;font-size:22px;cursor:pointer}
+  .account-form{display:grid;gap:12px}.account-form label{display:grid;gap:5px;font-size:13px;font-weight:650;color:#33364a}.account-form input,.account-form select{width:100%;border:1px solid #dedde8;border-radius:11px;padding:12px 13px;font:inherit;background:#fff;color:#17172b}.account-submit{border:0;border-radius:999px;background:#c0063f;color:white;font-weight:750;padding:13px 18px;margin-top:4px;cursor:pointer}.account-switch{margin-top:16px;text-align:center;font-size:14px}.account-switch button{color:#5b12e6;font-weight:700;background:none;border:0;cursor:pointer}.account-error{color:#b42318;background:#fff1f0;border-radius:10px;padding:10px 12px;font-size:13px}.account-success{color:#067647;background:#ecfdf3;border-radius:10px;padding:10px 12px;font-size:13px}
+  `; document.head.appendChild(style);
+  const root=document.createElement('div'); root.id='customer-account-root'; document.body.appendChild(root);
+  let mode='register', role='retailer', busy=false;
+  const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const render=(message='',kind='error')=>{
+    root.innerHTML=`<div class="account-backdrop" role="presentation"><section class="account-card" role="dialog" aria-modal="true" aria-labelledby="account-title"><button class="account-close" type="button" aria-label="Close">×</button><h2 id="account-title">${mode==='register'?'Create your iCoFyz account':'Welcome back'}</h2><p>${mode==='register'?'Join iCoFyz as a retailer or brand.':'Log in to continue shopping on iCoFyz.'}</p>${message?`<div class="account-${kind}" role="status">${escapeHtml(message)}</div>`:''}<form class="account-form" id="customer-account-form">${mode==='register'?`<label>Full name<input name="fullName" autocomplete="name" required minlength="2" maxlength="160" placeholder="Your full name"></label><label>Business name<input name="businessName" autocomplete="organization" required maxlength="180" placeholder="Your business name"></label><label>Account type<select name="businessType"><option value="retailer" ${role==='retailer'?'selected':''}>Retailer — I want to shop wholesale</option><option value="brand" ${role==='brand'?'selected':''}>Brand — I want to sell on iCoFyz</option></select></label>`:''}<label>Work email<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@business.com"></label><label>Password<input name="password" type="password" autocomplete="${mode==='register'?'new-password':'current-password'}" required minlength="${mode==='register'?12:1}" maxlength="128" placeholder="${mode==='register'?'At least 12 characters':'Your password'}"></label><button class="account-submit" type="submit" ${busy?'disabled':''}>${busy?'Please wait…':mode==='register'?'Create account':'Log in'}</button></form><div class="account-switch">${mode==='register'?'Already have an account?':'New to iCoFyz?'} <button type="button" data-switch>${mode==='register'?'Log in':'Sign up free'}</button></div></section></div>`;
+    root.querySelector('.account-close').addEventListener('click',close);
+    root.querySelector('.account-backdrop').addEventListener('click',e=>{if(e.target===e.currentTarget)close();});
+    root.querySelector('[data-switch]').addEventListener('click',()=>{mode=mode==='register'?'login':'register';render();});
+    root.querySelector('#customer-account-form').addEventListener('submit',submit);
+  };
+  const close=()=>{root.replaceChildren();};
+  const csrf=async()=>{const r=await fetch('/api/auth/csrf',{credentials:'same-origin'});if(!r.ok)throw new Error('Could not start a secure session. Refresh and try again.');return (await r.json()).csrfToken;};
+  const submit=async e=>{
+    e.preventDefault();if(busy)return;busy=true;const form=e.currentTarget;const data=Object.fromEntries(new FormData(form).entries());role=data.businessType||role;render();
+    try{const token=await csrf();const endpoint=mode==='register'?'/api/customer/register':'/api/customer/login';const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','x-csrf-token':token},body:JSON.stringify(data)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Unable to complete your request.');busy=false;render(mode==='register'?'Your customer account is ready. Welcome to iCoFyz!':'You are now logged in. Welcome back.','success');setTimeout(()=>{close();window.dispatchEvent(new CustomEvent('icofyz:customer-authenticated',{detail:result.customer}));},900);}catch(err){busy=false;render(err.message||'Something went wrong. Please try again.','error');}
+  };
+  document.addEventListener('click',e=>{const trigger=e.target.closest('[data-open]');if(!trigger)return;e.preventDefault();e.stopImmediatePropagation();role=trigger.dataset.role==='brand'?'brand':'retailer';mode=(trigger.dataset.authMode==='login'||trigger.textContent.trim().toLowerCase()==='log in')?'login':'register';busy=false;render();},true);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&root.firstChild)close();});
+}
+
 function IcofyzPage() {
   const initialized = useRef(false);
 
@@ -276,6 +304,7 @@ function IcofyzPage() {
       legacyScript.remove();
       ensureStorefrontVisuals();
       applyVisualSettings(cms?.settings || {});
+      installCustomerAccounts();
     });
     return () => { cancelled = true; };
   }, []);

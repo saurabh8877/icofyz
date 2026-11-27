@@ -100,3 +100,9 @@ In local development, Vite proxies `/api` and `/uploads` to Express on port 4000
 ## Storefront photography update
 
 The homepage category tiles and Trending on iCoFyz product cards now use locally bundled WebP lifestyle/product photography in `public/images/storefront/`. The storefront renderer in `src/main.jsx` ensures these visual sections are populated even if the legacy catalogue renderer does not populate them. Images are served from the same GoDaddy app origin; no external image service or API key is required.
+
+## Customer accounts (retailers and brands)
+
+The storefront provides customer registration and login separately from the CMS administrator login. Customer records are stored in the GoDaddy MySQL database in the `customers` table; passwords are hashed with bcrypt. Registration requires a name, business name, account type, email, and a password of at least 12 characters. Customer sessions use the application's existing secure session store and are distinct from administrator authorization.
+
+Set `SESSION_SECRET` in GoDaddy Secrets (32+ characters). GoDaddy automatically supplies `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`. The schema is applied by the server at startup. Email verification, password reset, and transactional email are not included yet and require an email provider integration.

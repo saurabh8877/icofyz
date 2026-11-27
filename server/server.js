@@ -62,6 +62,7 @@ const loginLimiter=rateLimit({windowMs:15*60*1000,limit:8,standardHeaders:true,l
 const types=new Set(['products','categories','brands','banners']);
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(next);
 const requireAuth=(req,res,next)=>req.session?.adminId?next():res.status(401).json({error:'Please sign in.'});
+const requireCustomer=(req,res,next)=>req.session?.customerId?next():res.status(401).json({error:'Please sign in to your customer account.'});
 const requireCsrf=(req,res,next)=>{
  const token=req.get('x-csrf-token');
  if(!req.session?.csrfToken || !token || token.length!==req.session.csrfToken.length || !crypto.timingSafeEqual(Buffer.from(token),Buffer.from(req.session.csrfToken))) return res.status(403).json({error:'Security token expired. Refresh and sign in again.'});
@@ -70,6 +71,39 @@ const requireCsrf=(req,res,next)=>{
 const parseJson=value=>typeof value==='string'?JSON.parse(value):value;
 app.get('/api/health',asyncRoute(async(_q,s)=>{await pool.query('SELECT 1');s.json({ok:true,database:'connected'});}));
 app.get('/api/auth/csrf',(q,s)=>{q.session.csrfToken ||= crypto.randomBytes(32).toString('hex');s.json({csrfToken:q.session.csrfToken});});
+
+// Customer accounts are separate from CMS administrator accounts.
+const customerLimiter=rateLimit({windowMs:15*60*1000,limit:10,standardHeaders:true,legacyHeaders:false,message:{error:'Too many account attempts. Please try again later.'}});
+app.post('/api/customer/register',customerLimiter,requireCsrf,asyncRoute(async(q,s)=>{
+ const fullName=String(q.body.fullName||'').trim().slice(0,160);
+ const email=String(q.body.email||'').trim().toLowerCase();
+ const businessName=String(q.body.businessName||'').trim().slice(0,180);
+ const businessType=String(q.body.businessType||'retailer');
+ const password=String(q.body.password||'');
+ if(fullName.length<2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !businessName || !['retailer','brand'].includes(businessType) || password.length<12 || password.length>128) return s.status(400).json({error:'Enter your name, valid work email, business name, account type and a password of at least 12 characters.'});
+ const [existing]=await pool.execute('SELECT id FROM customers WHERE email=? LIMIT 1',[email]);
+ if(existing.length) return s.status(409).json({error:'An account with this email already exists. Please log in instead.'});
+ const hash=await bcrypt.hash(password,12);
+ let result;
+ try { [result]=await pool.execute('INSERT INTO customers(full_name,email,business_name,business_type,password_hash) VALUES(?,?,?,?,?)',[fullName,email,businessName,businessType,hash]); }
+ catch(err){if(err.code==='ER_DUP_ENTRY')return s.status(409).json({error:'An account with this email already exists. Please log in instead.'});throw err;}
+ await new Promise((resolve,reject)=>q.session.regenerate(err=>err?reject(err):resolve()));
+ q.session.customerId=result.insertId; q.session.customerEmail=email; q.session.customerName=fullName; q.session.customerRole=businessType; q.session.csrfToken=crypto.randomBytes(32).toString('hex');
+ s.status(201).json({ok:true,customer:{id:result.insertId,fullName,email,businessName,businessType},csrfToken:q.session.csrfToken});
+}));
+app.post('/api/customer/login',customerLimiter,requireCsrf,asyncRoute(async(q,s)=>{
+ const email=String(q.body.email||'').trim().toLowerCase(),password=String(q.body.password||'');
+ const [rows]=await pool.execute('SELECT id,full_name,email,business_name,business_type,password_hash FROM customers WHERE email=? LIMIT 1',[email]);
+ const customer=rows[0];
+ if(!customer || !(await bcrypt.compare(password,customer.password_hash))) return s.status(401).json({error:'Email or password is incorrect.'});
+ if(customer.status!=='active') return s.status(403).json({error:'This account is not active. Please contact iCoFyz support.'});
+ await new Promise((resolve,reject)=>q.session.regenerate(err=>err?reject(err):resolve()));
+ q.session.customerId=customer.id;q.session.customerEmail=customer.email;q.session.customerName=customer.full_name;q.session.customerRole=customer.business_type;q.session.csrfToken=crypto.randomBytes(32).toString('hex');
+ s.json({ok:true,customer:{id:customer.id,fullName:customer.full_name,email:customer.email,businessName:customer.business_name,businessType:customer.business_type},csrfToken:q.session.csrfToken});
+}));
+app.get('/api/customer/me',(q,s)=>s.json({authenticated:!!q.session?.customerId,customer:q.session?.customerId?{id:q.session.customerId,email:q.session.customerEmail,fullName:q.session.customerName,businessType:q.session.customerRole}:null}));
+app.post('/api/customer/logout',requireCustomer,requireCsrf,(q,s)=>q.session.destroy(()=>{s.clearCookie('icofyz.sid',{httpOnly:true,sameSite:'strict',secure:production});s.json({ok:true});}));
+
 app.post('/api/auth/login',loginLimiter,requireCsrf,asyncRoute(async(q,s)=>{
  const email=String(q.body.email||'').toLowerCase().trim(),password=String(q.body.password||'');
  const [rows]=await pool.execute('SELECT id,email,password_hash FROM admins WHERE email=? LIMIT 1',[email]);
